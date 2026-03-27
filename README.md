@@ -2,8 +2,9 @@
 
 # bioportal-cli
 
-![Python](https://img.shields.io/badge/python-3.11%2B-eab308)
-![License](https://img.shields.io/badge/license-MIT-ca8a04)
+[![Release](https://img.shields.io/github/v/release/decent-tools-for-thought/bioportal-cli?sort=semver&color=0f766e)](https://github.com/decent-tools-for-thought/bioportal-cli/releases)
+![Python](https://img.shields.io/badge/python-3.11%2B-0ea5e9)
+![License](https://img.shields.io/badge/license-MIT-14b8a6)
 
 Full-surface command-line wrapper for the NCBO BioPortal API, with search, ontology resources, collaboration resources, analytics, downloads, and machine-readable output.
 
@@ -20,6 +21,7 @@ Full-surface command-line wrapper for the NCBO BioPortal API, with search, ontol
 - [Credits](#credits)
 
 ## Install
+$$\color{#0EA5E9}Install \space \color{#14B8A6}Tool$$
 
 ```bash
 python -m venv .venv
@@ -36,6 +38,7 @@ pip install -e .[dev]
 ```
 
 ## Functionality
+$$\color{#0EA5E9}Browse \space \color{#14B8A6}Ontology$$
 
 ### Search and NLP
 - `bioportal search`: term search with ontology filters, exact matching, suggestion mode, subtree/roots-only constraints, CUI and semantic-type filtering, paging, include fields, and language controls.
@@ -92,6 +95,7 @@ pip install -e .[dev]
 - Pagination controls: `--page`, `--pagesize`, and optional traversal with `--all-pages --max-pages N`.
 
 ## Configuration
+$$\color{#0EA5E9}Tune \space \color{#14B8A6}Access$$
 
 BioPortal API keys can be provided by flag, environment variable, or XDG config file.
 
@@ -108,6 +112,7 @@ bioportal config show
 ```
 
 ## Quick Start
+$$\color{#0EA5E9}Try \space \color{#14B8A6}Queries$$
 
 ```bash
 bioportal search --q melanoma --ontologies NCIT,GO --pagesize 10
