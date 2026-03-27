@@ -76,7 +76,7 @@ jobs:
         run: |
           python -m venv .venv-sdist
           .venv-sdist/bin/python -m pip install --upgrade pip setuptools wheel
-          .venv-sdist/bin/python -m pip install --no-build-isolation dist/*.tar.gz
+          .venv-sdist/bin/python -m pip install dist/*.tar.gz
           .venv-sdist/bin/python -c "import bioportal_cli"
           .venv-sdist/bin/bioportal --help >/dev/null
 
