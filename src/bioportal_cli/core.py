@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from bioportal_cli.client import BioPortalClient
-from bioportal_cli.docs import ENDPOINT_SPECS, UPSTREAM_DOCS_URL
+from bioportal_cli.docs import ENDPOINT_SPECS, UPSTREAM_DOCS_URL, WORKFLOW_SPECS
 
 OutputMode = str
 
@@ -73,6 +73,7 @@ def docs_info() -> dict[str, Any]:
     return {
         "upstream_docs": UPSTREAM_DOCS_URL,
         "endpoint_count": len(ENDPOINT_SPECS),
+        "workflow_count": len(WORKFLOW_SPECS),
         "families": sorted({spec.family for spec in ENDPOINT_SPECS}),
     }
 

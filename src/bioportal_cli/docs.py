@@ -241,3 +241,47 @@ ENDPOINT_SPECS: tuple[EndpointSpec, ...] = (
     EndpointSpec("users", "POST", "/users/create_reset_password_token", "Create reset token"),
     EndpointSpec("users", "POST", "/users/reset_password", "Reset password"),
 )
+
+
+WORKFLOW_SPECS: tuple[dict[str, str], ...] = (
+    {
+        "command": "workflows concept-resolve",
+        "summary": "Resolve a concept by class ID or constrained search",
+    },
+    {
+        "command": "workflows concept-expand",
+        "summary": "Expand class neighborhood and hierarchy context",
+    },
+    {
+        "command": "workflows concept-annotate-and-map",
+        "summary": "Annotate text and enrich hits with mappings",
+    },
+    {
+        "command": "workflows ontology-profile",
+        "summary": "Aggregate ontology metadata, submission, metrics, analytics, and memberships",
+    },
+    {
+        "command": "workflows ontology-compare",
+        "summary": "Compare two ontologies using metrics, mappings, and probe coverage",
+    },
+    {
+        "command": "workflows recommender-explain",
+        "summary": "Run recommender with explicit weights and explanation context",
+    },
+    {
+        "command": "workflows notes-thread-export",
+        "summary": "Export notes and threaded replies in normalized form",
+    },
+    {
+        "command": "workflows batch-classes-from-file",
+        "summary": "Read class-ontology pairs from file and execute /batch",
+    },
+    {
+        "command": "workflows fetch-all",
+        "summary": "Traverse pagination for list endpoints and return all items",
+    },
+    {
+        "command": "workflows pipeline-suggest-ontologies",
+        "summary": "Recommend ontologies then preview search and annotation results",
+    },
+)

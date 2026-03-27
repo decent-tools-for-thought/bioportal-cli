@@ -73,6 +73,18 @@ pip install -e .[dev]
 - `bioportal config show|set`: saved defaults for key/base-url/timeout.
 - `bioportal api request`: direct operation fallback (`method + path + query + optional body`) without reducing explicit wrapper coverage.
 
+### Higher-Order Workflows
+- `bioportal workflows concept-resolve <ontology> <term-or-id>`: resolve a concept via direct class lookup (URI-like IDs) or ontology-constrained search with best-match output.
+- `bioportal workflows concept-expand <ontology> <class-id>`: aggregate class item, parents/children, ancestors/descendants, and paths-to-root into one graph-ready payload.
+- `bioportal workflows concept-annotate-and-map --text ...`: annotate text and enrich each annotation with class details and mappings where available.
+- `bioportal workflows ontology-profile <acronym>`: return ontology metadata, latest submission, metrics, analytics, categories, groups, and projects in one object.
+- `bioportal workflows ontology-compare <left> <right> --by {metrics|mappings|coverage|all}`: compare two ontologies using metrics, mapping statistics, and optional probe-query coverage checks.
+- `bioportal workflows recommender-explain --input ...`: run recommender and return weighted criterion context alongside raw recommender output.
+- `bioportal workflows notes-thread-export [--global | --ontology X [--class-id Y]]`: export notes with threaded reply normalization.
+- `bioportal workflows batch-classes-from-file <file>`: load class/ontology pairs from JSON or CSV-like lines and execute `/batch`.
+- `bioportal workflows fetch-all <path>`: traverse pagination for list endpoints and return consolidated items.
+- `bioportal workflows pipeline-suggest-ontologies --text ...`: recommender-driven ontology shortlist with search and annotator previews.
+
 ### Output and Paging
 - Output modes: `--output json`, `--output jsonl`, `--output text`.
 - File writes: `--output-file`.
@@ -108,6 +120,14 @@ bioportal ontologies get NCIT --output text
 bioportal classes get NCIT http%3A%2F%2Fpurl.bioontology.org%2Fontology%2FNCIT%2FC3224
 
 bioportal analytics ontology NCIT
+
+bioportal workflows concept-resolve NCIT melanoma
+
+bioportal workflows ontology-profile NCIT
+
+bioportal workflows ontology-compare NCIT EFO --by all --probe cancer --probe melanoma
+
+bioportal workflows pipeline-suggest-ontologies --text "melanoma biomarkers" --top 3
 
 bioportal docs catalog --output jsonl
 ```

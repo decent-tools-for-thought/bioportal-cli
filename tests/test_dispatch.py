@@ -28,6 +28,8 @@ def test_parser_for_major_families() -> None:
     assert ns.command == "ontologies"
     ns = parser.parse_args(["users", "authenticate", "--data-json", "{}"])
     assert ns.command == "users"
+    ns = parser.parse_args(["workflows", "concept-resolve", "NCIT", "melanoma"])
+    assert ns.command == "workflows"
 
 
 def test_invalid_json_body_error(capsys: object) -> None:
@@ -37,3 +39,12 @@ def test_invalid_json_body_error(capsys: object) -> None:
     assert rc == 2
     err = capsys.readouterr().err  # type: ignore[attr-defined]
     assert "error:" in err
+
+
+def test_workflow_scope_validation(capsys: object) -> None:
+    from bioportal_cli.cli import main
+
+    rc = main(["workflows", "notes-thread-export", "--class-id", "X"])
+    assert rc == 2
+    err = capsys.readouterr().err  # type: ignore[attr-defined]
+    assert "requires --ontology" in err

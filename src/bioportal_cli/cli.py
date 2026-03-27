@@ -5,7 +5,7 @@ import json
 import sys
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 from bioportal_cli.client import BioPortalClient, BioPortalError
 from bioportal_cli.config import Config, ConfigError, write_config
@@ -416,6 +416,89 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("ontology")
     p.add_argument("submission_id")
 
+    p_workflows = sub.add_parser("workflows", help="Higher-order workflow commands")
+    wf_sub = p_workflows.add_subparsers(dest="wf_cmd", required=True)
+
+    p = wf_sub.add_parser("concept-resolve", help="Resolve concept by ID or search")
+    _add_common_query_flags(p)
+    p.add_argument("ontology")
+    p.add_argument("term_or_id")
+    p.add_argument("--search-limit", type=int, default=5)
+    p.add_argument("--require-exact-match", action=argparse.BooleanOptionalAction, default=True)
+
+    p = wf_sub.add_parser("concept-expand", help="Expand concept neighborhood graph")
+    _add_common_query_flags(p)
+    p.add_argument("ontology")
+    p.add_argument("class_id")
+    p.add_argument("--depth", type=int, default=1)
+    p.add_argument("--include-ancestors", action=argparse.BooleanOptionalAction, default=True)
+    p.add_argument("--include-descendants", action=argparse.BooleanOptionalAction, default=True)
+    p.add_argument("--include-paths", action=argparse.BooleanOptionalAction, default=True)
+
+    p = wf_sub.add_parser("concept-annotate-and-map", help="Annotate text and expand with mappings")
+    _add_common_query_flags(p)
+    p.add_argument("--text", required=True)
+    p.add_argument("--ontologies")
+    p.add_argument("--semantic-types")
+    p.add_argument("--include-class-details", action=argparse.BooleanOptionalAction, default=True)
+
+    p = wf_sub.add_parser("ontology-profile", help="Build ontology profile summary")
+    _add_common_query_flags(p)
+    p.add_argument("acronym")
+
+    p = wf_sub.add_parser("ontology-compare", help="Compare two ontologies")
+    _add_common_query_flags(p)
+    p.add_argument("left")
+    p.add_argument("right")
+    p.add_argument("--by", choices=["metrics", "mappings", "coverage", "all"], default="all")
+    p.add_argument(
+        "--probe",
+        action="append",
+        help="Coverage probe query (repeatable; used for --by coverage/all)",
+    )
+
+    p = wf_sub.add_parser(
+        "recommender-explain", help="Run recommender and include explanation summary"
+    )
+    _add_common_query_flags(p)
+    p.add_argument("--input", required=True)
+    p.add_argument("--input-type", type=int, choices=[1, 2])
+    p.add_argument("--output-type", type=int, choices=[1, 2])
+    p.add_argument("--max-elements-set", type=int, choices=[2, 3, 4])
+    p.add_argument("--wc", type=float)
+    p.add_argument("--wa", type=float)
+    p.add_argument("--wd", type=float)
+    p.add_argument("--ws", type=float)
+    p.add_argument("--ontologies")
+
+    p = wf_sub.add_parser(
+        "notes-thread-export", help="Export notes and replies as normalized threads"
+    )
+    _add_common_query_flags(p)
+    p.add_argument("--ontology")
+    p.add_argument("--class-id")
+    p.add_argument("--global", dest="global_scope", action="store_true")
+
+    p = wf_sub.add_parser("batch-classes-from-file", help="Build /batch class payload from file")
+    _add_common_query_flags(p)
+    p.add_argument("input_file")
+    p.add_argument("--display", default="prefLabel,synonym,semanticTypes")
+
+    p = wf_sub.add_parser("fetch-all", help="Fetch all pages from a list endpoint")
+    _add_common_query_flags(p)
+    p.add_argument("path", help="API path for list endpoint, e.g. /ontologies")
+    p.add_argument("--query", action="append", help="Query key=value (repeatable)")
+    p.add_argument("--max-pages", type=int)
+
+    p = wf_sub.add_parser(
+        "pipeline-suggest-ontologies",
+        help="Recommend ontologies and run quick search/annotation previews",
+    )
+    _add_common_query_flags(p)
+    p.add_argument("--text", required=True)
+    p.add_argument("--top", type=int, default=3)
+    p.add_argument("--search-pagesize", type=int, default=3)
+
     _register_discussion_family(
         sub,
         "notes",
@@ -740,6 +823,8 @@ def _dispatch_with_client(client: BioPortalClient, args: argparse.Namespace) -> 
         return _dispatch_mappings(client, args)
     if args.command == "metrics":
         return _dispatch_metrics(client, args)
+    if args.command == "workflows":
+        return _dispatch_workflows(client, args)
     if args.command == "notes":
         return _dispatch_notes(client, args)
     if args.command == "replies":
@@ -1111,6 +1196,374 @@ def _dispatch_metrics(client: BioPortalClient, args: argparse.Namespace) -> Comm
             path=f"/ontologies/{args.ontology}/submissions/{args.submission_id}/metrics",
         )
     raise ValueError("unknown metrics command")
+
+
+def _dispatch_workflows(client: BioPortalClient, args: argparse.Namespace) -> CommandResult:
+    cmd = args.wf_cmd
+    if cmd == "concept-resolve":
+        ontology = _enc(args.ontology)
+        term_or_id = args.term_or_id
+        looked_up_by_id = False
+        direct_payload: Any | None = None
+
+        if term_or_id.startswith("http://") or term_or_id.startswith("https://"):
+            looked_up_by_id = True
+            try:
+                direct_payload = client.request(
+                    "GET",
+                    f"/ontologies/{ontology}/classes/{_enc(term_or_id)}",
+                    params=common_params(args),
+                ).data
+            except BioPortalError:
+                direct_payload = None
+
+        if direct_payload is not None:
+            return CommandResult(
+                payload={
+                    "strategy": "direct-class-id",
+                    "ontology": args.ontology,
+                    "query": term_or_id,
+                    "resolved": direct_payload,
+                }
+            )
+
+        resolve_params = {
+            **common_params(args),
+            "q": term_or_id,
+            "ontology": args.ontology,
+            "require_exact_match": args.require_exact_match,
+            "pagesize": args.search_limit,
+        }
+        results = client.request("GET", "/search", params=resolve_params).data
+        if isinstance(results, list) and results:
+            return CommandResult(
+                payload={
+                    "strategy": "search",
+                    "looked_up_by_id": looked_up_by_id,
+                    "ontology": args.ontology,
+                    "query": term_or_id,
+                    "best_match": results[0],
+                    "candidates": results,
+                }
+            )
+        return CommandResult(
+            payload={
+                "strategy": "search",
+                "ontology": args.ontology,
+                "query": term_or_id,
+                "resolved": None,
+                "candidates": [],
+            }
+        )
+
+    if cmd == "concept-expand":
+        ontology = _enc(args.ontology)
+        class_id = _enc(args.class_id)
+        base = f"/ontologies/{ontology}/classes/{class_id}"
+        node = client.request("GET", base, params=common_params(args)).data
+        parents = client.request("GET", f"{base}/parents", params=common_params(args)).data
+        children = client.request("GET", f"{base}/children", params=common_params(args)).data
+        ancestors: Any = []
+        descendants: Any = []
+        paths_to_root: Any = []
+        if args.include_ancestors:
+            ancestors = client.request("GET", f"{base}/ancestors", params=common_params(args)).data
+        if args.include_descendants:
+            descendants = client.request(
+                "GET", f"{base}/descendants", params=common_params(args)
+            ).data
+        if args.include_paths:
+            paths_to_root = client.request(
+                "GET", f"{base}/paths_to_root", params=common_params(args)
+            ).data
+        return CommandResult(
+            payload={
+                "ontology": args.ontology,
+                "class_id": args.class_id,
+                "depth_requested": args.depth,
+                "node": node,
+                "neighbors": {"parents": parents, "children": children},
+                "ancestors": ancestors,
+                "descendants": descendants,
+                "paths_to_root": paths_to_root,
+            }
+        )
+
+    if cmd == "concept-annotate-and-map":
+        params = {
+            **common_params(args),
+            "text": args.text,
+            "ontologies": args.ontologies,
+            "semantic_types": args.semantic_types,
+        }
+        annotations = client.request("GET", "/annotator", params=params).data
+        enriched: list[dict[str, Any]] = []
+        if isinstance(annotations, list):
+            for item in annotations:
+                if not isinstance(item, dict):
+                    continue
+                annotated_class = item.get("annotatedClass")
+                class_links = (
+                    annotated_class.get("links", {}) if isinstance(annotated_class, dict) else {}
+                )
+                class_self = class_links.get("self") if isinstance(class_links, dict) else None
+                class_data: Any | None = None
+                mapping_data: Any | None = None
+                if isinstance(class_self, str):
+                    path = urlparse(class_self).path
+                    if args.include_class_details:
+                        class_data = client.request("GET", path, params=common_params(args)).data
+                    try:
+                        mapping_data = client.request(
+                            "GET", f"{path}/mappings", params=common_params(args)
+                        ).data
+                    except BioPortalError:
+                        mapping_data = []
+                enriched.append(
+                    {
+                        "annotation": item,
+                        "class": class_data,
+                        "mappings": mapping_data,
+                    }
+                )
+        return CommandResult(
+            payload={"text": args.text, "annotations": annotations, "enriched": enriched}
+        )
+
+    if cmd == "ontology-profile":
+        acronym = _enc(args.acronym)
+        params = common_params(args)
+        profile = {
+            "ontology": client.request("GET", f"/ontologies/{acronym}", params=params).data,
+            "latest_submission": client.request(
+                "GET", f"/ontologies/{acronym}/latest_submission", params=params
+            ).data,
+            "metrics": client.request("GET", f"/ontologies/{acronym}/metrics", params=params).data,
+            "analytics": client.request(
+                "GET", f"/ontologies/{acronym}/analytics", params=params
+            ).data,
+            "categories": client.request(
+                "GET", f"/ontologies/{acronym}/categories", params=params
+            ).data,
+            "groups": client.request("GET", f"/ontologies/{acronym}/groups", params=params).data,
+            "projects": client.request(
+                "GET", f"/ontologies/{acronym}/projects", params=params
+            ).data,
+        }
+        return CommandResult(payload=profile)
+
+    if cmd == "ontology-compare":
+        params = common_params(args)
+        left = _enc(args.left)
+        right = _enc(args.right)
+        out: dict[str, Any] = {"left": args.left, "right": args.right, "by": args.by}
+        if args.by in {"metrics", "all"}:
+            out["metrics"] = {
+                "left": client.request("GET", f"/ontologies/{left}/metrics", params=params).data,
+                "right": client.request("GET", f"/ontologies/{right}/metrics", params=params).data,
+            }
+        if args.by in {"mappings", "all"}:
+            out["mapping_statistics"] = {
+                "left": client.request(
+                    "GET", f"/mappings/statistics/ontologies/{left}", params=params
+                ).data,
+                "right": client.request(
+                    "GET", f"/mappings/statistics/ontologies/{right}", params=params
+                ).data,
+            }
+        if args.by in {"coverage", "all"}:
+            probes = args.probe or ["disease", "cell", "gene"]
+            coverage: list[dict[str, Any]] = []
+            for probe in probes:
+                left_hits_raw = client.request(
+                    "GET",
+                    "/search",
+                    params={**params, "q": probe, "ontology": args.left, "pagesize": 1},
+                ).data
+                right_hits_raw = client.request(
+                    "GET",
+                    "/search",
+                    params={**params, "q": probe, "ontology": args.right, "pagesize": 1},
+                ).data
+                coverage.append(
+                    {
+                        "probe": probe,
+                        "left_hits": len(left_hits_raw) if isinstance(left_hits_raw, list) else 0,
+                        "right_hits": len(right_hits_raw)
+                        if isinstance(right_hits_raw, list)
+                        else 0,
+                    }
+                )
+            out["coverage"] = coverage
+        return CommandResult(payload=out)
+
+    if cmd == "recommender-explain":
+        params = {
+            **common_params(args),
+            "input": args.input,
+            "input_type": args.input_type,
+            "output_type": args.output_type,
+            "max_elements_set": args.max_elements_set,
+            "wc": args.wc,
+            "wa": args.wa,
+            "wd": args.wd,
+            "ws": args.ws,
+            "ontologies": args.ontologies,
+        }
+        result = client.request("GET", "/recommender", params=params).data
+        return CommandResult(
+            payload={
+                "input": args.input,
+                "weights": {
+                    "wc": args.wc if args.wc is not None else 0.55,
+                    "wa": args.wa if args.wa is not None else 0.15,
+                    "wd": args.wd if args.wd is not None else 0.15,
+                    "ws": args.ws if args.ws is not None else 0.15,
+                },
+                "result": result,
+            }
+        )
+
+    if cmd == "notes-thread-export":
+        params = {**common_params(args), "include_threads": True}
+        if args.class_id and not args.ontology:
+            raise ValueError("--class-id requires --ontology")
+        if args.global_scope:
+            notes = client.request("GET", "/notes", params=params).data
+        elif args.ontology and args.class_id:
+            notes = client.request(
+                "GET",
+                f"/ontologies/{_enc(args.ontology)}/classes/{_enc(args.class_id)}/notes",
+                params=params,
+            ).data
+        elif args.ontology:
+            notes = client.request(
+                "GET", f"/ontologies/{_enc(args.ontology)}/notes", params=params
+            ).data
+        else:
+            raise ValueError("choose one scope: --global OR --ontology [--class-id]")
+        flattened: list[dict[str, Any]] = []
+        if isinstance(notes, list):
+            for note in notes:
+                if not isinstance(note, dict):
+                    continue
+                note_id = note.get("@id") or note.get("id")
+                thread_replies = note.get("replies") or note.get("reply") or []
+                flattened.append(
+                    {
+                        "note_id": note_id,
+                        "subject": note.get("subject"),
+                        "body": note.get("body"),
+                        "reply_count": len(thread_replies)
+                        if isinstance(thread_replies, list)
+                        else 0,
+                        "thread": thread_replies,
+                    }
+                )
+        return CommandResult(payload={"notes": notes, "export": flattened})
+
+    if cmd == "batch-classes-from-file":
+        src = Path(args.input_file)
+        text = src.read_text(encoding="utf-8")
+        collection: list[dict[str, str]] = []
+        if src.suffix.lower() == ".json":
+            parsed = json.loads(text)
+            if isinstance(parsed, list):
+                for row in parsed:
+                    if isinstance(row, dict) and "class" in row and "ontology" in row:
+                        collection.append(
+                            {
+                                "class": str(row["class"]),
+                                "ontology": str(row["ontology"]),
+                            }
+                        )
+            else:
+                raise ValueError("JSON input must be a list of {'class','ontology'} objects")
+        else:
+            for line in text.splitlines():
+                stripped = line.strip()
+                if stripped == "" or stripped.startswith("#"):
+                    continue
+                if "," not in stripped:
+                    raise ValueError("CSV input lines must be: class,ontology")
+                cls, ont = stripped.split(",", 1)
+                collection.append({"class": cls.strip(), "ontology": ont.strip()})
+        payload = {
+            "http://www.w3.org/2002/07/owl#Class": {
+                "collection": collection,
+                "display": args.display,
+            }
+        }
+        result = client.request(
+            "POST", "/batch", json_body=payload, params=common_params(args)
+        ).data
+        return CommandResult(payload={"request": payload, "result": result})
+
+    if cmd == "fetch-all":
+        fetch_params: dict[str, Any] = common_params(args)
+        for pair in args.query or []:
+            if "=" not in pair:
+                raise ValueError(f"invalid key=value entry: {pair}")
+            key, value = pair.split("=", 1)
+            if key.strip() == "":
+                raise ValueError(f"invalid key=value entry: {pair}")
+            fetch_params[key] = value
+        items = client.paginate(args.path, params=fetch_params, max_pages=args.max_pages)
+        return CommandResult(
+            payload={
+                "path": args.path,
+                "max_pages": args.max_pages,
+                "count": len(items),
+                "items": items,
+            }
+        )
+
+    if cmd == "pipeline-suggest-ontologies":
+        params = common_params(args)
+        rec = client.request("GET", "/recommender", params={**params, "input": args.text}).data
+        top_candidates: list[dict[str, Any]] = []
+        if isinstance(rec, list):
+            top_candidates = [x for x in rec if isinstance(x, dict)][: args.top]
+        previews: list[dict[str, Any]] = []
+        for item in top_candidates:
+            ontology_acronym: str | None = None
+            if isinstance(item.get("ontology"), dict):
+                ontology_acronym = item["ontology"].get("acronym")
+            ontology_acronym = ontology_acronym or item.get("acronym")
+            if not isinstance(ontology_acronym, str):
+                continue
+            search_preview = client.request(
+                "GET",
+                "/search",
+                params={
+                    **params,
+                    "q": args.text,
+                    "ontology": ontology_acronym,
+                    "pagesize": args.search_pagesize,
+                },
+            ).data
+            annotation_preview = client.request(
+                "GET",
+                "/annotator",
+                params={**params, "text": args.text, "ontologies": ontology_acronym},
+            ).data
+            previews.append(
+                {
+                    "ontology": ontology_acronym,
+                    "search_preview": search_preview,
+                    "annotation_preview": annotation_preview,
+                }
+            )
+        return CommandResult(
+            payload={
+                "input_text": args.text,
+                "recommended": rec,
+                "top_considered": [p["ontology"] for p in previews],
+                "previews": previews,
+            }
+        )
+
+    raise ValueError("unknown workflows command")
 
 
 def _dispatch_notes(client: BioPortalClient, args: argparse.Namespace) -> CommandResult:
