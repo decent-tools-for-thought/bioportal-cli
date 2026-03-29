@@ -34,7 +34,7 @@ Repository = "https://github.com/ncbo"
 [project.scripts]
 bioportal = "bioportal_cli.cli:main"
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
   "build>=1.2.2",
   "mypy>=1.11",
